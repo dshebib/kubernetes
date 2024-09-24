@@ -50,6 +50,59 @@ func prefixedName(namePrefix string, name string) string {
 	return fmt.Sprintf("%s-%s", namePrefix, name)
 }
 
+var _ = SIGDescribe(framework.WithNodeConformance(), "Containers Lifecycle TMP", func() {
+	f := framework.NewDefaultFramework("containers-lifecycle-test")
+	addAfterEachForCleaningUpPods(f)
+	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
+
+	ginkgo.When("A pod runs with multiple regular containers", func() {
+
+		regular1 := "regular-a"
+		regular2 := "regular-z"
+
+		podSpec := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "second-container-fails",
+			},
+			Spec: v1.PodSpec{
+				RestartPolicy: v1.RestartPolicyNever,
+				Containers: []v1.Container{
+					{
+						Name:  regular1,
+						Image: agnhostImage,
+						Command: ExecCommand(regular1, execCommand{
+							Delay:    1,
+							ExitCode: 0,
+						}),
+					},
+					{
+						Name:  regular2,
+						Image: agnhostImage,
+						Command: ExecCommand(regular2, execCommand{
+							Delay:    1,
+							ExitCode: 1,
+						}),
+					},
+				},
+			},
+		}
+
+		preparePod(podSpec)
+
+		ginkgo.It("Should mark the pod as failed", func(ctx context.Context) {
+			client := e2epod.NewPodClient(f)
+			podSpec = client.Create(context.TODO(), podSpec)
+			ginkgo.By("Waiting for the pod to fail")
+			err := e2epod.WaitForPodCondition(ctx, f.ClientSet, podSpec.Namespace, podSpec.Name, "pod failed", 1*time.Minute, func(pod *v1.Pod) (bool, error) {
+				return pod.Status.Phase == v1.PodFailed, nil
+			})
+			framework.ExpectNoError(err)
+		})
+	})
+})
+
+
+
 var _ = SIGDescribe(framework.WithNodeConformance(), "Containers Lifecycle", func() {
 	f := framework.NewDefaultFramework("containers-lifecycle-test")
 	addAfterEachForCleaningUpPods(f)
